@@ -1,0 +1,1 @@
+*.ipynb_checkpoints\n__pycache__/\n.DS_Store\n.env\n*.pyc
