@@ -1,14 +1,17 @@
 
-def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=True):
+def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", ini=400, peri=10, hori=1, guardar=False, graficar=True, logi=False):
+  import time
+  start = time.time()
+
   '''
   Entrena un modelo Prophet para el ticker especificado usando optimización con Optuna.
-  
+
   Parámetros:
-  - ticker (str): símbolo del activo (ej. 'FUNO11.MX')
+  - ticker (str): símbolo del activo (ej. 'AMD.MX')
   - trials (int): número de iteraciones de búsqueda de hiperparámetros
   - FHi (str): fecha de inicio para descarga de datos (formato 'YYYY-MM-DD')
   - guardar (bool): si se desea guardar el modelo entrenado
-  
+
   Retorna:
   - modelo (Prophet): objeto Prophet entrenado
   '''
@@ -23,12 +26,22 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=
   from prophet import Prophet
   from prophet.diagnostics import cross_validation, performance_metrics
 
+  import logging
+  optuna.logging.set_verbosity(optuna.logging.CRITICAL)
+  for logger_name in ["cmdstanpy", "prophet"]:
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.CRITICAL)
+    logger.propagate = False  # evita que se propague al logger raíz
+    for handler in logger.handlers:
+      logger.removeHandler(handler)
+
+
   ticker = ticker.upper()
   ticker_id = ticker.lower().replace('.', '').replace('-', '')
   if FHe == "":
     FHe = datetime.today().strftime('%Y-%m-%d')
   DatAss = yf.download(ticker, start=FHi, end=FHe, auto_adjust=True)['Close']
-  
+
   df_prophet = DatAss.reset_index().copy()
   df_prophet['ds'] = DatAss.index
   df_prophet['y'] = df_prophet[ticker]
@@ -38,7 +51,8 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=
   def objective(trial):
 
     # Hiperparámetros a optimizar
-    growth = trial.suggest_categorical('growth', ['linear', 'logistic'])
+    growth_options = ['linear', 'logistic'] if logi else ['linear']
+    growth = trial.suggest_categorical('growth', growth_options)
     changepoint_prior_scale = trial.suggest_float('changepoint_prior_scale', 0.001, 0.5, log=True)
     seasonality_prior_scale = trial.suggest_float('seasonality_prior_scale', 0.01, 10.0, log=True)
     holidays_prior_scale = trial.suggest_float('holidays_prior_scale', 0.01, 10.0, log=True)
@@ -60,7 +74,7 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=
     model.fit(df_prophet)
 
     # Validación cruzada temporal
-    df_cv = cross_validation(model, initial='150 days', period='10 days', horizon='30 days')
+    df_cv = cross_validation(model, initial=f'{ini} days', period=f'{peri} days', horizon=f'{hori} days')
     df_perf = performance_metrics(df_cv)
 
     # Retornamos el RMSE promedio
@@ -83,7 +97,7 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=
 
   modelo.fit(df_prophet)
 
-  df_cv = cross_validation(modelo, initial='150 days', period='10 days', horizon='30 days')
+  df_cv = cross_validation(modelo, initial=f'{ini} days', period=f'{peri} days', horizon=f'{hori} days')
   df_perf = performance_metrics(df_cv)
   print(f'🧠 Entrenamiento completado para {ticker} con RMSE promedio: {df_perf["rmse"].mean():.4f}')
 
@@ -93,11 +107,10 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=
 
   # Predecir con modelo final
   forecast = modelo.predict(future)
-  
+
   if graficar:
     modelo.plot(forecast)
     plt.title(f'Price forecast for {ticker}')
-    #plt.plot(funo, label='Precio de Cierre')
     plt.xlabel("Date")
     plt.ylabel("Closure price")
     plt.grid(True, linestyle='--', alpha=0.4)
@@ -107,7 +120,7 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=
 
   carpeta_modelos = '/content/drive/MyDrive/Projects/FinTech-ML-Portfolio/2_scripts/'
   if guardar:
-    nombre_archivo = f'model_{ticker_id}.pkl'
+    nombre_archivo = f'model_{ticker_id}_{hori}.pkl'
     ruta = os.path.join(carpeta_modelos, nombre_archivo)
 
     with open(ruta, 'wb') as f:
@@ -115,4 +128,13 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", guardar=False, graficar=
 
     print(f'✅ Modelo guardado en: {ruta}')
 
+  end = time.time()
+  hrs = (end - start)//3600
+  min = ((end - start)%3600)//60
+  seg = (end - start)%60
+  print(f'Tiempo de ejecución: {(end - start):.0f} segundos')
+  print(f'Tiempo de ejecución: {hrs:.0f} horas, {min:.0f} minutos y  {seg:.0f} segundos')
+  print("Mejores hiperparámetros:")
+  print(study.best_params)
+  print(f"RMSE óptimo: {study.best_value:.4f}")
   return modelo
