@@ -101,7 +101,7 @@ def trainer(ticker, trials=1, FHi='2021-01-01', FHe="", ini=400, peri=10, hori=1
   df_perf = performance_metrics(df_cv)
   print(f'🧠 Entrenamiento completado para {ticker} con RMSE promedio: {df_perf["rmse"].mean():.4f}')
 
-  future = modelo.make_future_dataframe(periods=90)
+  future = modelo.make_future_dataframe(periods=hori)
   if study.best_params['growth'] == 'logistic':
     future['cap'] = df_prophet['cap'].iloc[0]
 
